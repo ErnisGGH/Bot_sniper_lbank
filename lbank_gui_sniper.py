@@ -131,7 +131,11 @@ def make_lbank_api_request_gui(endpoint_path_str, params_dict_original, http_met
             return {"result": "false", "error_code": "UNSUPPORTED_SIGN_FLOW_IN_BOT", "msg": "Flujo de firma no implementado para este endpoint en el bot."}
 
     full_url_str = base_url_str + endpoint_path_str
-    headers = {'Content-Type': 'application/json'}
+    headers = {'Content-Type': 'application/json', 'User-Agent': f"LBankSniperBotGUI/{VERSION}"}
+    if requires_full_signature_flow:
+        headers['timestamp'] = current_timestamp_val
+        headers['echostr'] = current_echostr
+        headers['signature_method'] = declared_final_method
 
     try:
         if http_method.upper() == "POST":
@@ -140,10 +144,13 @@ def make_lbank_api_request_gui(endpoint_path_str, params_dict_original, http_met
                 params_to_send_final.pop('timestamp', None)
                 params_to_send_final.pop('echostr', None)
                 params_to_send_final.pop('signature_method', None)
-            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con JSON body: {params_to_send_final}")
+            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con JSON body: {params_to_send_final} y Headers: {headers}")
             response = requests.post(full_url_str, json=params_to_send_final, headers=headers, timeout=20)
         elif http_method.upper() == "GET": 
-            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con params: {params_to_send_final}")
+            # For GET requests, these parameters are usually in the query string, so they might remain in params_to_send_final
+            # However, if the API expects them in headers for GET as well, this part would need adjustment.
+            # For now, assuming GET params are fine as they are, and headers are primarily for POST body related signature elements.
+            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con params: {params_to_send_final} y Headers: {headers}")
             response = requests.get(full_url_str, params=params_to_send_final, headers=headers, timeout=20)
         else:
             gui_log_func(f"ERROR: Método HTTP no soportado: {http_method}", "error")
