@@ -1,0 +1,15 @@
+lbank_api_key: ccc5743e-931d-48f1-90ec-482f81fe27d5
+lbank_secret_key: DA79C4542825E0B72B9ABD1F32D48C86
+target_symbol_input: VIRGEN
+usdt_amount_to_invest: 10.0
+poll_interval_seconds: 2
+stop_after_attempt: true
+telegram_config:
+  enabled: false
+  bot_token: ''
+  chat_id: ''
+email_config:
+  enabled: false
+  sender_email: ''
+  app_password: ''
+  receiver_email: ''
