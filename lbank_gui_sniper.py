@@ -116,6 +116,9 @@ def make_lbank_api_request_gui(endpoint_path_str, params_dict_original, http_met
         params_to_send_final['signature_version'] = signature_version_value # Se envía, pero no se incluye en la base del MD5
         
         # La firma se genera solo con los params en params_for_signature_generation
+        params_for_signature_generation.pop('signature_version', None)
+        gui_log_func(f"DEBUG: Params for signature base (contents before signing): {params_for_signature_generation}")
+        gui_log_func(f"DEBUG: Params for signature base (sorted items before signing): {sorted(params_for_signature_generation.items())}")
         sign = generate_lbank_signature_for_api(params_for_signature_generation, secret_key_str, declared_signature_method=declared_final_method, gui_log_func=gui_log_func)
         if not sign:
             gui_log_func("ERROR: Fallo al generar la firma HmacSHA256.", "error")
