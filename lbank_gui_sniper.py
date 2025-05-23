@@ -50,7 +50,7 @@ VERSION = "1.2.7" # Versión del Bot con ajuste experimental en firma v2 (signat
 
 # --- Lógica del Bot ---
 
-def generate_random_string_for_echostr(length=32):
+def generate_random_string_for_echostr(length=35):
     return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
 
 def generate_lbank_signature_for_api(params_dict_for_md5_base, secret_key_str, declared_signature_method="HmacSHA256", gui_log_func=None):
@@ -65,9 +65,8 @@ def generate_lbank_signature_for_api(params_dict_for_md5_base, secret_key_str, d
 
     if declared_signature_method.upper() == "HMACSHA256":
         try:
-            hmac_signature_raw = hmac.new(secret_key_str.encode('utf-8'), md5_prepared_str.encode('utf-8'), hashlib.sha256).digest()
-            final_sign_value = base64.b64encode(hmac_signature_raw).decode('utf-8')
-            gui_log_func(f"DEBUG: HmacSHA256 Signature (Base64 encoded): {final_sign_value}")
+            final_sign_value = hmac.new(secret_key_str.encode('utf-8'), md5_prepared_str.encode('utf-8'), hashlib.sha256).hexdigest().lower()
+            gui_log_func(f"DEBUG: HmacSHA256 Signature (Hex encoded): {final_sign_value}")
             return final_sign_value
         except Exception as e:
             gui_log_func(f"ERROR: Excepción al generar firma HmacSHA256: {e}", "error")
@@ -132,13 +131,19 @@ def make_lbank_api_request_gui(endpoint_path_str, params_dict_original, http_met
             return {"result": "false", "error_code": "UNSUPPORTED_SIGN_FLOW_IN_BOT", "msg": "Flujo de firma no implementado para este endpoint en el bot."}
 
     full_url_str = base_url_str + endpoint_path_str
-    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    headers = {'Content-Type': 'application/json'}
 
     try:
-        gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con params: {params_to_send_final}")
         if http_method.upper() == "POST":
-            response = requests.post(full_url_str, data=params_to_send_final, headers=headers, timeout=20)
+            # Remove parameters not needed in the JSON body for POST, after signature calculation
+            if requires_full_signature_flow:
+                params_to_send_final.pop('timestamp', None)
+                params_to_send_final.pop('echostr', None)
+                params_to_send_final.pop('signature_method', None)
+            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con JSON body: {params_to_send_final}")
+            response = requests.post(full_url_str, json=params_to_send_final, headers=headers, timeout=20)
         elif http_method.upper() == "GET": 
+            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con params: {params_to_send_final}")
             response = requests.get(full_url_str, params=params_to_send_final, headers=headers, timeout=20)
         else:
             gui_log_func(f"ERROR: Método HTTP no soportado: {http_method}", "error")
