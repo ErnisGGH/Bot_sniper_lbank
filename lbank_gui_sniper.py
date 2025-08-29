@@ -50,7 +50,7 @@ VERSION = "1.2.7" # Versión del Bot con ajuste experimental en firma v2 (signat
 
 # --- Lógica del Bot ---
 
-def generate_random_string_for_echostr(length=32):
+def generate_random_string_for_echostr(length=35):
     return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
 
 def generate_lbank_signature_for_api(params_dict_for_md5_base, secret_key_str, declared_signature_method="HmacSHA256", gui_log_func=None):
@@ -65,9 +65,8 @@ def generate_lbank_signature_for_api(params_dict_for_md5_base, secret_key_str, d
 
     if declared_signature_method.upper() == "HMACSHA256":
         try:
-            hmac_signature_raw = hmac.new(secret_key_str.encode('utf-8'), md5_prepared_str.encode('utf-8'), hashlib.sha256).digest()
-            final_sign_value = base64.b64encode(hmac_signature_raw).decode('utf-8')
-            gui_log_func(f"DEBUG: HmacSHA256 Signature (Base64 encoded): {final_sign_value}")
+            final_sign_value = hmac.new(secret_key_str.encode('utf-8'), md5_prepared_str.encode('utf-8'), hashlib.sha256).hexdigest().lower()
+            gui_log_func(f"DEBUG: HmacSHA256 Signature (Hex encoded): {final_sign_value}")
             return final_sign_value
         except Exception as e:
             gui_log_func(f"ERROR: Excepción al generar firma HmacSHA256: {e}", "error")
@@ -92,51 +91,75 @@ def make_lbank_api_request_gui(endpoint_path_str, params_dict_original, http_met
     params_for_signature_generation = params_dict_original.copy() # Endpoint-specific params (symbol, type, price)
     params_for_signature_generation['api_key'] = api_key_str
     
-    # Parámetros que se enviarán en la solicitud final (incluye los firmados y los no firmados)
+    # Initialize headers
+    headers = {'Content-Type': 'application/json', 'User-Agent': f"LBankSniperBotGUI/{VERSION}"}
+    
+    # params_to_send_final will be the JSON body for POST or query params for GET.
+    # It's initialized with business parameters.
     params_to_send_final = params_dict_original.copy()
-    params_to_send_final['api_key'] = api_key_str
-
 
     if requires_full_signature_flow:
         current_timestamp_val = str(int(pytime.time() * 1000)) 
         current_echostr = generate_random_string_for_echostr() 
         declared_final_method = "HmacSHA256"
-        signature_version_value = "2.0" # Este se envía, pero no se firma (experimental)
+        signature_version_value = "2.0"
 
-        # Añadir a los parámetros que se firman (params_for_signature_generation)
+        # Populate params for signature generation (includes business params, api_key, and sig-specific params)
         params_for_signature_generation['timestamp'] = current_timestamp_val 
         params_for_signature_generation['echostr'] = current_echostr
         params_for_signature_generation['signature_method'] = declared_final_method
-        # *** EXPERIMENTO: 'signature_version' NO se incluye aquí para la firma MD5 ***
+        params_for_signature_generation['signature_version'] = signature_version_value
         
-        # Añadir a los parámetros que se envían (params_to_send_final)
-        params_to_send_final['timestamp'] = current_timestamp_val
-        params_to_send_final['echostr'] = current_echostr
-        params_to_send_final['signature_method'] = declared_final_method
-        params_to_send_final['signature_version'] = signature_version_value # Se envía, pero no se incluye en la base del MD5
-        
-        # La firma se genera solo con los params en params_for_signature_generation
+        gui_log_func(f"DEBUG: Params for signature base (contents before signing): {params_for_signature_generation}")
+        gui_log_func(f"DEBUG: Params for signature base (sorted items before signing): {sorted(params_for_signature_generation.items())}")
         sign = generate_lbank_signature_for_api(params_for_signature_generation, secret_key_str, declared_signature_method=declared_final_method, gui_log_func=gui_log_func)
         if not sign:
             gui_log_func("ERROR: Fallo al generar la firma HmacSHA256.", "error")
             return None
         
-        params_to_send_final['sign'] = sign
-    else: 
+        # Populate headers with ALL signature-related parameters
+        headers['api_key'] = api_key_str
+        headers['signature_version'] = signature_version_value
+        headers['sign'] = sign
+        headers['timestamp'] = current_timestamp_val
+        headers['echostr'] = current_echostr
+        headers['signature_method'] = declared_final_method
+        
+        # For POST requests with full signature flow, the JSON body (params_to_send_final)
+        # must ONLY contain the original business parameters.
+        # We ensure this by re-assigning it to a fresh copy of params_dict_original here.
+        if http_method.upper() == "POST":
+            params_to_send_final = params_dict_original.copy()
+        # For GET requests, params_to_send_final already holds params_dict_original.
+        # All signature-related parameters are now in headers.
+        # If the API for some GET endpoints expects these in query params *as well*,
+        # they would need to be explicitly added to params_to_send_final here.
+        # Assuming they are only needed in headers for GET if requires_full_signature_flow.
+
+    else: # Not requires_full_signature_flow
+        # For endpoints not requiring full signature, params_to_send_final is params_dict_original.
+        # Specific non-signed endpoints might have different expectations for api_key (e.g., some might need it in query/body).
+        # /v2/ticker/24hr.do typically doesn't need api_key.
         if endpoint_path_str == "/v2/ticker/24hr.do": 
-             params_to_send_final = params_dict_original.copy() 
+            pass # params_to_send_final is already params_dict_original
         else:
-            gui_log_func(f"ADVERTENCIA: Endpoint {endpoint_path_str} llamado sin flujo de firma HmacSHA256 completo.", "warning")
-            return {"result": "false", "error_code": "UNSUPPORTED_SIGN_FLOW_IN_BOT", "msg": "Flujo de firma no implementado para este endpoint en el bot."}
+            # If other non-signed endpoints might need api_key in the query/body, it should be added here.
+            # For now, assuming it's not needed for other non-signed general calls by default.
+            gui_log_func(f"ADVERTENCIA: Endpoint {endpoint_path_str} llamado sin flujo de firma HmacSHA256 completo. Params: {params_to_send_final}", "warning")
+            # Consider if a generic non-signed request should attempt to include api_key in params_to_send_final or not.
+            # The original return for "UNSUPPORTED_SIGN_FLOW_IN_BOT" was removed in a previous step to allow flexibility.
 
     full_url_str = base_url_str + endpoint_path_str
-    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-
+    
     try:
-        gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con params: {params_to_send_final}")
         if http_method.upper() == "POST":
-            response = requests.post(full_url_str, data=params_to_send_final, headers=headers, timeout=20)
+            # params_to_send_final is now clean for POST if requires_full_signature_flow was true.
+            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con JSON body: {params_to_send_final} y Headers: {headers}")
+            response = requests.post(full_url_str, json=params_to_send_final, headers=headers, timeout=20)
         elif http_method.upper() == "GET": 
+            # For GET, params_to_send_final contains original business params.
+            # Headers contain sig elements if requires_full_signature_flow.
+            gui_log_func(f"DEBUG: Enviando {http_method} a {full_url_str} con params: {params_to_send_final} y Headers: {headers}")
             response = requests.get(full_url_str, params=params_to_send_final, headers=headers, timeout=20)
         else:
             gui_log_func(f"ERROR: Método HTTP no soportado: {http_method}", "error")
